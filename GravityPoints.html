@@ -1,0 +1,1173 @@
+<canvas id="c"></canvas>
+<div class="info"></div>
+
+<div id="discoveryPanel">
+    <div id="discoveryTitle">Elementos / compuestos nuevos</div>
+    <div id="discoverySubtitle">Modelo simplificado: enlace = grafo covalente/i&oacute;nico por categor&iacute;a (no representa geometr&iacute;a ni estados de oxidaci&oacute;n reales). Desintegraci&oacute;n = Z-2 gen&eacute;rico, no isot&oacute;pico.</div>
+    <button id="exportDiscoveryBtn">Exportar a Excel</button>
+    <table id="discoveryTable">
+        <thead><tr><th>Nombre</th><th>Tipo</th><th>E (0-1)</th><th>K (sim)</th><th>Origen</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<style>
+    body {
+    font-family: Helvetica sans-serif;
+    padding: 0;
+    margin: 0;
+    background-color: #222;
+    overflow: hidden;
+    -webkit-user-select: none;
+       -moz-user-select: none;
+         -o-user-select: none;
+        -ms-user-select: none;
+            user-select: none;
+}
+
+canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.info {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 5px 15px;
+    color: #eee;
+    font-size: 13px;
+    background-color: rgba(0, 0, 0, .5);
+}
+
+#discoveryPanel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 320px;
+    max-height: 100vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    background-color: rgba(0, 0, 0, .55);
+    color: #eee;
+    font-size: 12px;
+}
+
+#discoveryTitle {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+#discoverySubtitle {
+    font-size: 10px;
+    line-height: 1.35;
+    opacity: .65;
+    margin-bottom: 6px;
+}
+
+#exportDiscoveryBtn {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 4px 0;
+    background-color: rgba(255, 255, 255, .12);
+    color: #eee;
+    border: 1px solid rgba(255, 255, 255, .3);
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+#exportDiscoveryBtn:hover {
+    background-color: rgba(255, 255, 255, .22);
+}
+
+#discoveryTable {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#discoveryTable th,
+#discoveryTable td {
+    text-align: left;
+    padding: 2px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, .15);
+    white-space: nowrap;
+    color: #eee;
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+<script>
+    /**
+ * requestAnimationFrame
+ */
+window.requestAnimationFrame = (function(){
+    return  window.requestAnimationFrame       ||
+            window.webkitRequestAnimationFrame ||
+            window.mozRequestAnimationFrame    ||
+            window.oRequestAnimationFrame      ||
+            window.msRequestAnimationFrame     ||
+            function (callback) {
+                window.setTimeout(callback, 1000 / 60);
+            };
+})();
+
+
+/**
+ * Vector
+ */
+function Vector(x, y) {
+    this.x = x || 0;
+    this.y = y || 0;
+}
+
+Vector.add = function(a, b) {
+    return new Vector(a.x + b.x, a.y + b.y);
+};
+
+Vector.sub = function(a, b) {
+    return new Vector(a.x - b.x, a.y - b.y);
+};
+
+Vector.scale = function(v, s) {
+    return v.clone().scale(s);
+};
+
+Vector.random = function() {
+    return new Vector(
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1
+    );
+};
+
+Vector.prototype = {
+    set: function(x, y) {
+        if (typeof x === 'object') {
+            y = x.y;
+            x = x.x;
+        }
+        this.x = x || 0;
+        this.y = y || 0;
+        return this;
+    },
+
+    add: function(v) {
+        this.x += v.x;
+        this.y += v.y;
+        return this;
+    },
+
+    sub: function(v) {
+        this.x -= v.x;
+        this.y -= v.y;
+        return this;
+    },
+
+    scale: function(s) {
+        this.x *= s;
+        this.y *= s;
+        return this;
+    },
+
+    length: function() {
+        return Math.sqrt(this.x * this.x + this.y * this.y);
+    },
+
+    lengthSq: function() {
+        return this.x * this.x + this.y * this.y;
+    },
+
+    normalize: function() {
+        var m = Math.sqrt(this.x * this.x + this.y * this.y);
+        if (m) {
+            this.x /= m;
+            this.y /= m;
+        }
+        return this;
+    },
+
+    angle: function() {
+        return Math.atan2(this.y, this.x);
+    },
+
+    angleTo: function(v) {
+        var dx = v.x - this.x,
+            dy = v.y - this.y;
+        return Math.atan2(dy, dx);
+    },
+
+    distanceTo: function(v) {
+        var dx = v.x - this.x,
+            dy = v.y - this.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    },
+
+    distanceToSq: function(v) {
+        var dx = v.x - this.x,
+            dy = v.y - this.y;
+        return dx * dx + dy * dy;
+    },
+
+    lerp: function(v, t) {
+        this.x += (v.x - this.x) * t;
+        this.y += (v.y - this.y) * t;
+        return this;
+    },
+
+    clone: function() {
+        return new Vector(this.x, this.y);
+    },
+
+    toString: function() {
+        return '(x:' + this.x + ', y:' + this.y + ')';
+    }
+};
+
+
+/**
+ * Periodic table elements -> category colors
+ */
+var ELEMENT_COLORS = {
+    alkali:      '#ff5252',
+    alkaline:    '#ffb74d',
+    lanthanide:  '#ba68c8',
+    actinide:    '#f06292',
+    transition:  '#ffd740',
+    post:        '#90a4ae',
+    metalloid:   '#aed581',
+    nonmetal:    '#4fc3f7',
+    halogen:     '#26c6da',
+    noble:       '#e0e0e0'
+};
+
+var ELEMENTS = [
+    ['H','nonmetal'],   ['He','noble'],     ['Li','alkali'],    ['Be','alkaline'],  ['B','metalloid'],
+    ['C','nonmetal'],   ['N','nonmetal'],   ['O','nonmetal'],   ['F','halogen'],    ['Ne','noble'],
+    ['Na','alkali'],    ['Mg','alkaline'],  ['Al','post'],      ['Si','metalloid'], ['P','nonmetal'],
+    ['S','nonmetal'],   ['Cl','halogen'],   ['Ar','noble'],     ['K','alkali'],     ['Ca','alkaline'],
+    ['Sc','transition'],['Ti','transition'],['V','transition'], ['Cr','transition'],['Mn','transition'],
+    ['Fe','transition'],['Co','transition'],['Ni','transition'],['Cu','transition'],['Zn','transition'],
+    ['Ga','post'],      ['Ge','metalloid'], ['As','metalloid'], ['Se','nonmetal'],  ['Br','halogen'],
+    ['Kr','noble'],     ['Rb','alkali'],    ['Sr','alkaline'],  ['Y','transition'], ['Zr','transition'],
+    ['Nb','transition'],['Mo','transition'],['Tc','transition'],['Ru','transition'],['Rh','transition'],
+    ['Pd','transition'],['Ag','transition'],['Cd','transition'],['In','post'],      ['Sn','post'],
+    ['Sb','metalloid'], ['Te','metalloid'], ['I','halogen'],    ['Xe','noble'],     ['Cs','alkali'],
+    ['Ba','alkaline'],  ['La','lanthanide'],['Ce','lanthanide'],['Pr','lanthanide'],['Nd','lanthanide'],
+    ['Pm','lanthanide'],['Sm','lanthanide'],['Eu','lanthanide'],['Gd','lanthanide'],['Tb','lanthanide'],
+    ['Dy','lanthanide'],['Ho','lanthanide'],['Er','lanthanide'],['Tm','lanthanide'],['Yb','lanthanide'],
+    ['Lu','lanthanide'],['Hf','transition'],['Ta','transition'],['W','transition'], ['Re','transition'],
+    ['Os','transition'],['Ir','transition'],['Pt','transition'],['Au','transition'],['Hg','transition'],
+    ['Tl','post'],      ['Pb','post'],      ['Bi','post'],      ['Po','post'],      ['At','halogen'],
+    ['Rn','noble'],     ['Fr','alkali'],    ['Ra','alkaline'],  ['Ac','actinide'],  ['Th','actinide'],
+    ['Pa','actinide'],  ['U','actinide'],   ['Np','actinide'],  ['Pu','actinide'],  ['Am','actinide'],
+    ['Cm','actinide'],  ['Bk','actinide'],  ['Cf','actinide'],  ['Es','actinide'],  ['Fm','actinide'],
+    ['Md','actinide'],  ['No','actinide'],  ['Lr','actinide'],  ['Rf','transition'],['Db','transition'],
+    ['Sg','transition'],['Bh','transition'],['Hs','transition'],['Mt','transition'],['Ds','transition'],
+    ['Rg','transition'],['Cn','transition'],['Nh','post'],      ['Fl','post'],      ['Mc','post'],
+    ['Lv','post'],      ['Ts','halogen'],   ['Og','noble']
+];
+
+/**
+ * Approximate chemistry data (simplified, for simulation purposes only —
+ * not authoritative reference values, especially for superheavy elements).
+ */
+var CATEGORY_EN = {
+    noble: 0, alkali: 0.8, alkaline: 1.1, lanthanide: 1.15, actinide: 1.3,
+    transition: 1.8, post: 1.9, metalloid: 2.0, nonmetal: 2.5, halogen: 3.0
+};
+
+// Only categories capable of simple covalent/ionic bonding in this model
+// get a nonzero oxidation number. Transition metals, post-transition
+// metals, lanthanides and actinides don't form molecular-style bonds here
+// — real intermetallic/alloy bonding isn't a two-atom covalent pair, so
+// letting them chain together (Bi-U-Br-Pb...) produced meaningless
+// "compounds". Alkali/alkaline metals stay strictly positive (cations)
+// so classic salts (NaCl, MgO, KBr) can still form via the ionic path.
+//
+// A single fixed number per element is a simplification — real oxidation
+// state is relational (carbon is -4 in CH4 but +4 in CO2) — so this is
+// each element's single most common/textbook state, used only to decide
+// (a) how many bonds an atom can make (its magnitude) and (b) which pairs
+// are allowed to bond (see oxidationCompatible below), not to model
+// specific real compounds' stoichiometry.
+var CATEGORY_OXIDATION = {
+    noble: 0, alkali: 1, alkaline: 2, lanthanide: 0, actinide: 0,
+    transition: 0, post: 0, metalloid: 3, nonmetal: -2, halogen: -1
+};
+
+var OXIDATION_OVERRIDES = {
+    H: 1, C: 4, N: -3, O: -2, P: -3, S: -2, Se: -2, Si: 4, Ge: 4, As: -3, Sb: -3, Te: -2
+};
+
+function getElementOxidation(symbol, category) {
+    return OXIDATION_OVERRIDES.hasOwnProperty(symbol) ? OXIDATION_OVERRIDES[symbol] : CATEGORY_OXIDATION[category];
+}
+
+// Elements that share electrons (covalent networks: C-C, C-H, Si-O,
+// Cl-Cl...) bond regardless of relative oxidation sign. Everything else
+// (alkali/alkaline metals) is ionic-only and needs an opposite-sign
+// partner — this is what stops Na-Na or Na-K from "bonding".
+function isCovalentCategory(category) {
+    return category === 'nonmetal' || category === 'halogen' || category === 'metalloid';
+}
+
+function oxidationCompatible(a, b) {
+    if (isCovalentCategory(a.category) && isCovalentCategory(b.category)) return true;
+    return (a.oxidation > 0 && b.oxidation < 0) || (a.oxidation < 0 && b.oxidation > 0);
+}
+
+// Pauling electronegativity, where known; superheavy/unmeasured elements
+// fall back to their category average via CATEGORY_EN.
+var EN_OVERRIDES = {
+    H:2.20, Li:0.98, Be:1.57, B:2.04, C:2.55, N:3.04, O:3.44, F:3.98,
+    Na:0.93, Mg:1.31, Al:1.61, Si:1.90, P:2.19, S:2.58, Cl:3.16,
+    K:0.82, Ca:1.00, Sc:1.36, Ti:1.54, V:1.63, Cr:1.66, Mn:1.55, Fe:1.83,
+    Co:1.88, Ni:1.91, Cu:1.90, Zn:1.65, Ga:1.81, Ge:2.01, As:2.18, Se:2.55, Br:2.96,
+    Kr:3.00, Rb:0.82, Sr:0.95, Y:1.22, Zr:1.33, Nb:1.60, Mo:2.16, Tc:1.90,
+    Ru:2.20, Rh:2.28, Pd:2.20, Ag:1.93, Cd:1.69, In:1.78, Sn:1.96, Sb:2.05, Te:2.10, I:2.66, Xe:2.60,
+    Cs:0.79, Ba:0.89, La:1.10, Ce:1.12, Pr:1.13, Nd:1.14, Pm:1.13, Sm:1.17,
+    Eu:1.20, Gd:1.20, Tb:1.10, Dy:1.22, Ho:1.23, Er:1.24, Tm:1.25, Yb:1.10, Lu:1.27,
+    Hf:1.30, Ta:1.50, W:2.36, Re:1.90, Os:2.20, Ir:2.20, Pt:2.28, Au:2.54, Hg:2.00,
+    Tl:1.62, Pb:1.87, Bi:2.02, Po:2.00, At:2.20, Rn:2.20,
+    Fr:0.70, Ra:0.90, Ac:1.10, Th:1.30, Pa:1.50, U:1.38, Np:1.36, Pu:1.28,
+    Am:1.30, Cm:1.30, Bk:1.30, Cf:1.30, Es:1.30, Fm:1.30, Md:1.30, No:1.30, Lr:1.30
+};
+
+function getElementEN(symbol, category) {
+    return EN_OVERRIDES.hasOwnProperty(symbol) ? EN_OVERRIDES[symbol] : CATEGORY_EN[category];
+}
+
+// Bond capacity = how many electrons the element typically gains/loses/shares.
+function getElementValence(symbol, category) {
+    return Math.abs(getElementOxidation(symbol, category));
+}
+
+// Mass number (protons + neutrons) of each element's most abundant natural
+// isotope, or — for elements with no stable isotope — its longest-lived/most
+// commonly cited one. Approximate, rounded values; a real periodic table
+// would list several isotopes per element with their own abundance and
+// half-life, but one representative isotope is enough to make decay events
+// track a real nuclide (e.g. Fr-223, U-238) instead of just an atomic number.
+var COMMON_MASS_NUMBER = {
+    H:1,   He:4,  Li:7,  Be:9,  B:11,  C:12,  N:14,  O:16,  F:19,  Ne:20,
+    Na:23, Mg:24, Al:27, Si:28, P:31,  S:32,  Cl:35, Ar:40, K:39,  Ca:40,
+    Sc:45, Ti:48, V:51,  Cr:52, Mn:55, Fe:56, Co:59, Ni:58, Cu:63, Zn:64,
+    Ga:69, Ge:74, As:75, Se:80, Br:79, Kr:84, Rb:85, Sr:88, Y:89,  Zr:90,
+    Nb:93, Mo:98, Tc:98, Ru:102,Rh:103,Pd:106,Ag:107,Cd:114,In:115,Sn:120,
+    Sb:121,Te:130,I:127, Xe:132,Cs:133,Ba:138,La:139,Ce:140,Pr:141,Nd:142,
+    Pm:145,Sm:152,Eu:153,Gd:158,Tb:159,Dy:164,Ho:165,Er:166,Tm:169,Yb:174,
+    Lu:175,Hf:180,Ta:181,W:184, Re:187,Os:192,Ir:193,Pt:195,Au:197,Hg:202,
+    Tl:205,Pb:208,Bi:209,Po:209,At:210,Rn:222,Fr:223,Ra:226,Ac:227,Th:232,
+    Pa:231,U:238, Np:237,Pu:244,Am:243,Cm:247,Bk:247,Cf:251,Es:252,Fm:257,
+    Md:258,No:259,Lr:262,Rf:267,Db:268,Sg:271,Bh:272,Hs:270,Mt:278,Ds:281,
+    Rg:282,Cn:285,Nh:286,Fl:289,Mc:290,Lv:293,Ts:294,Og:294
+};
+
+function getCommonMassNumber(symbol) {
+    return COMMON_MASS_NUMBER.hasOwnProperty(symbol) ? COMMON_MASS_NUMBER[symbol] : 1;
+}
+
+// Dominant decay mode per radioactive element (Z >= RADIOACTIVE_Z), for the
+// isotope named in COMMON_MASS_NUMBER. Real nuclides often have several
+// competing decay branches (e.g. At-210 splits between alpha and electron
+// capture); this keeps only the majority branch. Default is alpha, since
+// it's the dominant mode across most of the actinide series — the two
+// listed exceptions (Fr-223, Ac-227) are well-documented mostly-beta-minus
+// emitters and were picked specifically to show that decay chains aren't
+// just "Z-2 forever": beta-minus raises Z by 1 (a neutron becomes a
+// proton) instead of alpha's Z-2/A-4.
+var DECAY_MODE_OVERRIDES = { Fr: 'beta-', Ac: 'beta-' };
+
+function getDecayMode(symbol) {
+    return DECAY_MODE_OVERRIDES.hasOwnProperty(symbol) ? DECAY_MODE_OVERRIDES[symbol] : 'alpha';
+}
+
+
+/**
+ * GravityPoint
+ */
+function GravityPoint(x, y, radius, targets) {
+    Vector.call(this, x, y);
+    this.radius = radius;
+    this.currentRadius = radius * 0.5;
+
+    this._targets = {
+        particles: targets.particles || [],
+        gravities: targets.gravities || []
+    };
+    this._speed = new Vector();
+}
+
+GravityPoint.RADIUS_LIMIT = 65;
+GravityPoint.interferenceToPoint = false;
+
+GravityPoint.prototype = (function(o) {
+    var s = new Vector(0, 0), p;
+    for (p in o) s[p] = o[p];
+    return s;
+})({
+    gravity:       0.05,
+    isMouseOver:   false,
+    dragging:      false,
+    destroyed:     false,
+    _easeRadius:   0,
+    _dragDistance: null,
+    _collapsing:   false,
+
+    hitTest: function(p) {
+        return this.distanceTo(p) < this.radius;
+    },
+
+    startDrag: function(dragStartPoint) {
+        this._dragDistance = Vector.sub(dragStartPoint, this);
+        this.dragging = true;
+    },
+
+    drag: function(dragToPoint) {
+        this.x = dragToPoint.x - this._dragDistance.x;
+        this.y = dragToPoint.y - this._dragDistance.y;
+    },
+
+    endDrag: function() {
+        this._dragDistance = null;
+        this.dragging = false;
+    },
+
+    addSpeed: function(d) {
+        this._speed = this._speed.add(d);
+    },
+
+    collapse: function(e) {
+        this.currentRadius *= 1.75;
+        this._collapsing = true;
+    },
+
+    render: function(ctx, timeScale) {
+        if (this.destroyed) return;
+
+        var particles = this._targets.particles,
+            i, len;
+
+        for (i = 0, len = particles.length; i < len; i++) {
+            particles[i].addSpeed(Vector.sub(this, particles[i]).normalize().scale(this.gravity * timeScale));
+        }
+
+        this._easeRadius = (this._easeRadius + (this.radius - this.currentRadius) * 0.07) * 0.95;
+        this.currentRadius += this._easeRadius * timeScale;
+        if (this.currentRadius < 0) this.currentRadius = 0;
+
+        if (this._collapsing) {
+            this.radius *= (1 - 0.25 * timeScale);
+            if (this.currentRadius < 1 && !this.destroyed) {
+                this.destroyed = true;
+                for (i = 0, len = particles.length; i < len; i++) {
+                    particles[i].setElement();
+                }
+            }
+            this._draw(ctx);
+            return;
+        }
+
+        var gravities = this._targets.gravities,
+            g, absorp,
+            area = this.radius * this.radius * Math.PI, garea;
+
+        for (i = 0, len = gravities.length; i < len; i++) {
+            g = gravities[i];
+
+            if (g === this || g.destroyed) continue;
+
+            if (
+                (this.currentRadius >= g.radius || this.dragging) &&
+                this.distanceTo(g) < (this.currentRadius + g.radius) * 0.85
+            ) {
+                g.destroyed = true;
+                this.gravity += g.gravity;
+
+                absorp = Vector.sub(g, this).scale(g.radius / this.radius * 0.5);
+                this.addSpeed(absorp);
+
+                garea = g.radius * g.radius * Math.PI;
+                this.currentRadius = Math.sqrt((area + garea * 3) / Math.PI);
+                this.radius = Math.sqrt((area + garea) / Math.PI);
+            }
+
+            g.addSpeed(Vector.sub(this, g).normalize().scale(this.gravity * timeScale));
+        }
+
+        if (GravityPoint.interferenceToPoint && !this.dragging)
+            this.add(Vector.scale(this._speed, timeScale));
+
+        this._speed = new Vector();
+
+        if (this.currentRadius > GravityPoint.RADIUS_LIMIT) this.collapse();
+
+        this._draw(ctx);
+    },
+
+    _draw: function(ctx) {
+        var grd, r;
+
+        ctx.save();
+
+        grd = ctx.createRadialGradient(this.x, this.y, this.radius, this.x, this.y, this.radius * 5);
+        grd.addColorStop(0, 'rgba(0, 0, 0, 0.1)');
+        grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * 5, 0, Math.PI * 2, false);
+        ctx.fillStyle = grd;
+        ctx.fill();
+
+        r = Math.random() * this.currentRadius * 0.7 + this.currentRadius * 0.3;
+        grd = ctx.createRadialGradient(this.x, this.y, r, this.x, this.y, this.currentRadius);
+        grd.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        grd.addColorStop(1, Math.random() < 0.2 ? 'rgba(255, 196, 0, 0.15)' : 'rgba(103, 181, 191, 0.75)');
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.currentRadius, 0, Math.PI * 2, false);
+        ctx.fillStyle = grd;
+        ctx.fill();
+        ctx.restore();
+    }
+});
+
+
+/**
+ * Particle
+ */
+function Particle(x, y, radius) {
+    Vector.call(this, x, y);
+    this.radius = radius;
+    this.id = Particle._nextId++;
+
+    this._latest = new Vector();
+    this._speed  = new Vector();
+    this.setElement();
+}
+
+Particle._nextId = 0;
+
+Particle.prototype = (function(o) {
+    var s = new Vector(0, 0), p;
+    for (p in o) s[p] = o[p];
+    return s;
+})({
+    addSpeed: function(d) {
+        this._speed.add(d);
+    },
+
+    setElement: function(atomicNumber, massNumber) {
+        var idx = (typeof atomicNumber === 'number') ?
+            (atomicNumber - 1) : Math.floor(Math.random() * ELEMENTS.length);
+        idx = Math.max(0, Math.min(ELEMENTS.length - 1, idx));
+
+        if (this.bonds) this.breakAllBonds();
+
+        var e = ELEMENTS[idx];
+        this.atomicNumber = idx + 1;
+        this.element  = e[0];
+        this.category = e[1];
+        this.color    = ELEMENT_COLORS[e[1]];
+        this.en          = getElementEN(e[0], e[1]);
+        this.oxidation   = getElementOxidation(e[0], e[1]);
+        this.valence     = getElementValence(e[0], e[1]);
+        this.massNumber  = (typeof massNumber === 'number') ? massNumber : getCommonMassNumber(e[0]);
+        this.bonds    = [];
+        this.charge   = 0;
+    },
+
+    breakAllBonds: function() {
+        var i, other, idx;
+        for (i = 0; i < this.bonds.length; i++) {
+            other = this.bonds[i];
+            idx = other.bonds.indexOf(this);
+            if (idx !== -1) other.bonds.splice(idx, 1);
+        }
+        this.bonds = [];
+    },
+
+    update: function(timeScale) {
+        if (this._speed.length() > 12) this._speed.normalize().scale(12);
+
+        this._latest.set(this);
+        this.add(Vector.scale(this._speed, timeScale));
+    }
+
+    // render: function(ctx) {
+    //     if (this._speed.length() > 12) this._speed.normalize().scale(12);
+
+    //     this._latest.set(this);
+    //     this.add(this._speed);
+
+    //     ctx.save();
+    //     ctx.fillStyle = ctx.strokeStyle = '#fff';
+    //     ctx.lineCap = ctx.lineJoin = 'round';
+    //     ctx.lineWidth = this.radius * 2;
+    //     ctx.beginPath();
+    //     ctx.moveTo(this.x, this.y);
+    //     ctx.lineTo(this._latest.x, this._latest.y);
+    //     ctx.stroke();
+    //     ctx.beginPath();
+    //     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
+    //     ctx.fill();
+    //     ctx.restore();
+    // }
+});
+
+
+
+// Initialize
+
+(function() {
+
+    // Configs
+
+    var BACKGROUND_COLOR      = 'rgba(0, 0, 0, 1)',
+        PARTICLE_RADIUS       = 1,
+        G_POINT_RADIUS        = 10,
+        G_POINT_RADIUS_LIMITS = 65,
+        BOND_DISTANCE_SQ      = Math.pow(PARTICLE_RADIUS * 6, 2),
+        BOND_LENGTH           = PARTICLE_RADIUS * 5,
+        BOND_SPRING           = 0.02,
+        COULOMB_RANGE_SQ      = Math.pow(PARTICLE_RADIUS * 30, 2),
+        COULOMB_STRENGTH      = 0.15,
+        BASE_BOND_CHANCE      = 0.6,
+        // Short-range push-back between atoms that collide but can't bond
+        // (saturated valence, an inert/metallic category, or same-sign
+        // oxidation — see CATEGORY_OXIDATION) so they visibly deflect
+        // instead of overlapping.
+        REPEL_STRENGTH        = 0.03,
+        RADIOACTIVE_Z         = 84,
+        // "Temperature" mapped to a Kelvin-like scale used by the Arrhenius
+        // formulas below (0 -> ~80K cryogenic, 1 -> ~20080K, plasma-like).
+        KELVIN_MIN            = 80,
+        KELVIN_RANGE          = 20000,
+        // Bond dissociation energy grows with the electronegativity gap
+        // (ionic bonds end up sturdier than weak covalent ones).
+        BOND_ENERGY_BASE      = 6000,
+        BOND_ENERGY_PER_EN    = 5000,
+        // Ionization energy grows with electronegativity too (alkali metals
+        // ionize first, matching their real low first ionization energy).
+        IONIZE_ENERGY_BASE    = 9000,
+        IONIZE_ENERGY_PER_EN  = 3000,
+        // Radioactive half-life (in frames at timeScale = 1), shortened by
+        // temperature to represent extra energy destabilizing the nucleus.
+        DECAY_HALFLIFE_FRAMES = 400;
+
+
+    // Vars
+
+    var canvas, context,
+        bufferCvs, bufferCtx,
+        screenWidth, screenHeight,
+        mouse = new Vector(),
+        gravities = [],
+        particles = [],
+        grad,
+        gui, control;
+
+
+    // Event Listeners
+
+    function resize(e) {
+        screenWidth  = canvas.width  = window.innerWidth;
+        screenHeight = canvas.height = window.innerHeight;
+        bufferCvs.width  = screenWidth;
+        bufferCvs.height = screenHeight;
+        context   = canvas.getContext('2d');
+        bufferCtx = bufferCvs.getContext('2d');
+
+        var cx = canvas.width * 0.5,
+            cy = canvas.height * 0.5;
+
+        grad = context.createRadialGradient(cx, cy, 0, cx, cy, Math.sqrt(cx * cx + cy * cy));
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
+    }
+
+    function mouseMove(e) {
+        mouse.set(e.clientX, e.clientY);
+
+        var i, g, hit = false;
+        for (i = gravities.length - 1; i >= 0; i--) {
+            g = gravities[i];
+            if ((!hit && g.hitTest(mouse)) || g.dragging)
+                g.isMouseOver = hit = true;
+            else
+                g.isMouseOver = false;
+        }
+
+        canvas.style.cursor = hit ? 'pointer' : 'default';
+    }
+
+    function mouseDown(e) {
+        for (var i = gravities.length - 1; i >= 0; i--) {
+            if (gravities[i].isMouseOver) {
+                gravities[i].startDrag(mouse);
+                return;
+            }
+        }
+        gravities.push(new GravityPoint(e.clientX, e.clientY, G_POINT_RADIUS, {
+            particles: particles,
+            gravities: gravities
+        }));
+    }
+
+    function mouseUp(e) {
+        for (var i = 0, len = gravities.length; i < len; i++) {
+            if (gravities[i].dragging) {
+                gravities[i].endDrag();
+                break;
+            }
+        }
+    }
+
+    function doubleClick(e) {
+        for (var i = gravities.length - 1; i >= 0; i--) {
+            if (gravities[i].isMouseOver) {
+                gravities[i].collapse();
+                break;
+            }
+        }
+    }
+
+
+    // Functions
+
+    function addParticle(num) {
+        var i, p;
+        for (i = 0; i < num; i++) {
+            p = new Particle(
+                Math.floor(Math.random() * screenWidth - PARTICLE_RADIUS * 2) + 1 + PARTICLE_RADIUS,
+                Math.floor(Math.random() * screenHeight - PARTICLE_RADIUS * 2) + 1 + PARTICLE_RADIUS,
+                PARTICLE_RADIUS
+            );
+            p.addSpeed(Vector.random());
+            particles.push(p);
+        }
+    }
+
+    // Chemistry
+    //
+    // "Temperature" (0..1) is mapped to a Kelvin-like scale and plugged into
+    // Arrhenius-style exp(-E/T) survival/ionization probabilities, and decay
+    // uses the standard radioactive half-life law P = 1 - 0.5^(dt/halfLife).
+    // The energies themselves are arbitrary game-scale numbers tuned to give
+    // a sensible cold->molecules / hot->plasma range; they are not literal
+    // Joule/eV values.
+
+    function kelvinTemp(temperature) {
+        return KELVIN_MIN + temperature * KELVIN_RANGE;
+    }
+
+    function bondEnergy(a, b) {
+        var dEN = Math.abs(a.en - b.en);
+        return BOND_ENERGY_BASE + dEN * BOND_ENERGY_PER_EN;
+    }
+
+    function ionizationEnergy(p) {
+        return IONIZE_ENERGY_BASE + p.en * IONIZE_ENERGY_PER_EN;
+    }
+
+    function ionize(p) {
+        // Noble gases mostly stay inert even under heat.
+        if (p.category === 'noble' && Math.random() > 0.1) return;
+        p.breakAllBonds();
+        p.charge = (p.en < 1.8) ? 1 : -1;
+    }
+
+    function tryInteract(a, b, temperature, timeScale) {
+        if (a.bonds.indexOf(b) !== -1) return;
+
+        var T = kelvinTemp(temperature);
+
+        if (a.charge === 0 && Math.random() < Math.exp(-ionizationEnergy(a) / T) * timeScale) ionize(a);
+        if (b.charge === 0 && Math.random() < Math.exp(-ionizationEnergy(b) / T) * timeScale) ionize(b);
+        if (a.charge !== 0 || b.charge !== 0) return;
+
+        if (a.valence === 0 || b.valence === 0 ||
+            a.bonds.length >= a.valence || b.bonds.length >= b.valence ||
+            !oxidationCompatible(a, b)) {
+            // Chemically incompatible (inert/metallic category, already
+            // saturated, or same-sign — e.g. two cations like Na+Na):
+            // deflect apart instead of silently overlapping.
+            var away = Vector.sub(a, b).normalize().scale(REPEL_STRENGTH * timeScale);
+            a.addSpeed(away);
+            b.addSpeed(Vector.scale(away, -1));
+            return;
+        }
+
+        // Sticking coefficient: falls off as the collision gets more
+        // energetic (hotter), so pairs bounce off instead of binding.
+        var bondChance = BASE_BOND_CHANCE * Math.exp(-temperature * 3) * timeScale;
+        if (Math.random() < bondChance) {
+            var beforeA = a.bonds.length ? formulaOf(groupOf(a)) : a.element;
+            var beforeB = b.bonds.length ? formulaOf(groupOf(b)) : b.element;
+
+            a.bonds.push(b);
+            b.bonds.push(a);
+
+            var group = groupOf(a);
+            if (group.length > 1) {
+                var formula = formulaOf(group);
+                if (!knownFormulas[formula]) {
+                    knownFormulas[formula] = true;
+                    logDiscovery(formula, 'Enlace', temperature, beforeA + ' + ' + beforeB);
+                }
+            }
+        }
+    }
+
+    function updateBonds(temperature, timeScale) {
+        var T = kelvinTemp(temperature);
+        var i, a, j, b, bi, breakChance;
+        for (i = 0; i < particles.length; i++) {
+            a = particles[i];
+            for (j = a.bonds.length - 1; j >= 0; j--) {
+                b = a.bonds[j];
+                if (b.id < a.id) continue; // handle each bonded pair once
+                breakChance = Math.exp(-bondEnergy(a, b) / T) * timeScale;
+                if (Math.random() < breakChance) {
+                    a.bonds.splice(j, 1);
+                    bi = b.bonds.indexOf(a);
+                    if (bi !== -1) b.bonds.splice(bi, 1);
+                }
+            }
+        }
+    }
+
+    function updateDecay(temperature, timeScale) {
+        // Shorter half-life at higher temperature (extra agitation
+        // destabilizing the nucleus) — artistic license, real half-lives
+        // don't depend on temperature, but this keeps decay observable.
+        var halfLife = DECAY_HALFLIFE_FRAMES / (1 + temperature * 8);
+        var decayChance = 1 - Math.pow(0.5, timeScale / halfLife);
+        for (var i = 0; i < particles.length; i++) {
+            var p = particles[i];
+            if (p.atomicNumber >= RADIOACTIVE_Z && Math.random() < decayChance) {
+                var fromSymbol = p.element, fromA = p.massNumber;
+                var mode = getDecayMode(p.element);
+                var newZ, newA, modeLabel;
+
+                if (mode === 'beta-') {
+                    // A neutron converts to a proton: Z+1, mass number unchanged.
+                    newZ = p.atomicNumber + 1;
+                    newA = p.massNumber;
+                    modeLabel = 'B-';
+                } else {
+                    // Alpha emission: loses a He-4 nucleus (2 protons, 2 neutrons).
+                    newZ = p.atomicNumber - 2;
+                    newA = p.massNumber - 4;
+                    modeLabel = 'A';
+                }
+                newZ = Math.max(1, Math.min(ELEMENTS.length, newZ));
+                newA = Math.max(1, newA);
+
+                p.setElement(newZ, newA);
+
+                var key = 'decay:' + fromSymbol + fromA + '>' + p.element + newA;
+                if (!knownFormulas[key]) {
+                    knownFormulas[key] = true;
+                    logDiscovery(
+                        p.element + '-' + p.massNumber,
+                        'Desintegracion (' + modeLabel + ')',
+                        temperature,
+                        fromSymbol + '-' + fromA + ' -> ' + p.element + '-' + p.massNumber
+                    );
+                }
+            }
+        }
+    }
+
+    function applyBondForces(timeScale) {
+        var i, a, j, b, delta, dist, diff, pull;
+        for (i = 0; i < particles.length; i++) {
+            a = particles[i];
+            for (j = 0; j < a.bonds.length; j++) {
+                b = a.bonds[j];
+                if (b.id < a.id) continue;
+                delta = Vector.sub(b, a);
+                dist = delta.length();
+                if (dist === 0) continue;
+                diff = (dist - BOND_LENGTH) * BOND_SPRING * timeScale;
+                pull = delta.normalize().scale(diff);
+                a.addSpeed(pull);
+                b.addSpeed(Vector.scale(pull, -1));
+            }
+        }
+    }
+
+    function applyChargeForces(timeScale) {
+        var i, a, j, b, d2, dir, sign, force;
+        for (i = 0; i < particles.length; i++) {
+            a = particles[i];
+            if (a.charge === 0) continue;
+            for (j = i + 1; j < particles.length; j++) {
+                b = particles[j];
+                if (b.charge === 0) continue;
+                d2 = a.distanceToSq(b);
+                if (d2 > COULOMB_RANGE_SQ || d2 === 0) continue;
+                dir = Vector.sub(b, a).normalize();
+                sign = (a.charge * b.charge < 0) ? 1 : -1;
+                force = sign * COULOMB_STRENGTH / Math.max(d2 / 100, 1) * timeScale;
+                a.addSpeed(Vector.scale(dir, force));
+                b.addSpeed(Vector.scale(dir, -force));
+            }
+        }
+    }
+
+    function groupOf(atom) {
+        var stack = [atom], visited = {}, comp = [];
+        visited[atom.id] = true;
+        while (stack.length) {
+            var cur = stack.pop();
+            comp.push(cur);
+            for (var k = 0; k < cur.bonds.length; k++) {
+                var nb = cur.bonds[k];
+                if (!visited[nb.id]) { visited[nb.id] = true; stack.push(nb); }
+            }
+        }
+        return comp;
+    }
+
+    function computeGroups() {
+        var i, k, groups = [], seen = {};
+        for (i = 0; i < particles.length; i++) {
+            var start = particles[i];
+            if (seen[start.id] || start.bonds.length === 0) continue;
+            var comp = groupOf(start);
+            for (k = 0; k < comp.length; k++) seen[comp[k].id] = true;
+            groups.push(comp);
+        }
+        return groups;
+    }
+
+    function formulaOf(group) {
+        var counts = {}, i, s;
+        for (i = 0; i < group.length; i++) {
+            s = group[i].element;
+            counts[s] = (counts[s] || 0) + 1;
+        }
+        var symbols = Object.keys(counts).sort(function(x, y) {
+            if (x === 'C') return -1;
+            if (y === 'C') return 1;
+            if (x === 'H') return -1;
+            if (y === 'H') return 1;
+            return x < y ? -1 : (x > y ? 1 : 0);
+        });
+        return symbols.map(function(s) {
+            var c = counts[s];
+            return s + (c > 1 ? c : '');
+        }).join('');
+    }
+
+
+    // Discovery log
+
+    var knownFormulas = {};
+    var discoveryTableBody = document.querySelector('#discoveryTable tbody');
+    var MAX_LOG_ROWS = 5000;
+    // Once the log hits the cap, trim a whole batch of the oldest rows at
+    // once (instead of one row per new entry) so a long run shows chunks of
+    // history intact rather than continuously shedding its oldest row.
+    var PURGE_BATCH_ROWS = 1000;
+
+    function logDiscovery(name, type, temperature, origin) {
+        var tr = document.createElement('tr');
+        var cells = [
+            name,
+            type,
+            temperature.toFixed(2),
+            kelvinTemp(temperature).toFixed(0),
+            origin
+        ];
+        for (var i = 0; i < cells.length; i++) {
+            var td = document.createElement('td');
+            td.textContent = cells[i];
+            tr.appendChild(td);
+        }
+        discoveryTableBody.insertBefore(tr, discoveryTableBody.firstChild);
+
+        if (discoveryTableBody.children.length > MAX_LOG_ROWS) {
+            for (var r = 0; r < PURGE_BATCH_ROWS && discoveryTableBody.lastChild; r++) {
+                discoveryTableBody.removeChild(discoveryTableBody.lastChild);
+            }
+        }
+    }
+
+    function csvField(value) {
+        return '"' + String(value).replace(/"/g, '""') + '"';
+    }
+
+    function exportDiscoveryCsv() {
+        var rows = [['Nombre', 'Tipo', 'E (0-1)', 'K (sim)', 'Origen']];
+        var trs = discoveryTableBody.querySelectorAll('tr');
+        for (var i = 0; i < trs.length; i++) {
+            var tds = trs[i].querySelectorAll('td');
+            rows.push([tds[0].textContent, tds[1].textContent, tds[2].textContent, tds[3].textContent, tds[4].textContent]);
+        }
+
+        var csv = rows.map(function(row) {
+            return row.map(csvField).join(';');
+        }).join('\r\n');
+
+        var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'gravitypoints_descubrimientos.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('exportDiscoveryBtn').addEventListener('click', exportDiscoveryCsv, false);
+
+
+    // GUI Control
+
+    control = {
+        particleNum: ELEMENTS.length,
+        temperature: 0.15,
+        timeScale:   0.01,
+        showLabels:  true
+    };
+
+
+    // Init
+
+    canvas  = document.getElementById('c');
+    bufferCvs = document.createElement('canvas');
+
+    window.addEventListener('resize', resize, false);
+    resize(null);
+
+    addParticle(control.particleNum);
+
+    canvas.addEventListener('mousemove', mouseMove, false);
+    canvas.addEventListener('mousedown', mouseDown, false);
+    canvas.addEventListener('mouseup', mouseUp, false);
+    canvas.addEventListener('dblclick', doubleClick, false);
+
+
+    // GUI
+
+    gui = new dat.GUI();
+    gui.add(GravityPoint, 'interferenceToPoint').name('Interference Between Point');
+    gui.add(control, 'temperature', 0, 1).step(0.01).name('Temperatura / Energia');
+    gui.add(control, 'timeScale', {
+        'x1': 1, 'x0.9': 0.9, 'x0.8': 0.8, 'x0.7': 0.7, 'x0.6': 0.6,
+        'x0.5': 0.5, 'x0.4': 0.4, 'x0.3': 0.3, 'x0.2': 0.2, 'x0.1': 0.1,
+        'x0.05': 0.05, 'x0.01': 0.01, 'x0.005': 0.005
+    }).name('Velocidad (tiempo)');
+    gui.add(control, 'showLabels').name('Simbolos de elemento');
+    gui.close();
+
+
+    // Start Update
+
+    var loop = function() {
+        var i, len, g, p, j;
+        var timeScale   = control.timeScale;
+        var temperature = control.temperature;
+
+        context.save();
+        context.fillStyle = BACKGROUND_COLOR;
+        context.fillRect(0, 0, screenWidth, screenHeight);
+        context.fillStyle = grad;
+        context.fillRect(0, 0, screenWidth, screenHeight);
+        context.restore();
+
+        for (i = 0, len = gravities.length; i < len; i++) {
+            g = gravities[i];
+            if (g.dragging) g.drag(mouse);
+            g.render(context, timeScale);
+            if (g.destroyed) {
+                gravities.splice(i, 1);
+                len--;
+                i--;
+            }
+        }
+
+        bufferCtx.save();
+        bufferCtx.globalCompositeOperation = 'destination-out';
+        bufferCtx.globalAlpha = 0.35;
+        bufferCtx.fillRect(0, 0, screenWidth, screenHeight);
+        bufferCtx.restore();
+
+        // Chemistry: bonding / ionization, bond breaking, radioactive decay,
+        // then the resulting bond (spring) and coulomb forces.
+        for (i = 0; i < particles.length; i++) {
+            for (j = i + 1; j < particles.length; j++) {
+                if (particles[i].distanceToSq(particles[j]) < BOND_DISTANCE_SQ) {
+                    tryInteract(particles[i], particles[j], temperature, timeScale);
+                }
+            }
+        }
+        updateBonds(temperature, timeScale);
+        updateDecay(temperature, timeScale);
+        applyBondForces(timeScale);
+        applyChargeForces(timeScale);
+
+        len = particles.length;
+        bufferCtx.save();
+        bufferCtx.lineCap = bufferCtx.lineJoin = 'round';
+        bufferCtx.lineWidth = PARTICLE_RADIUS * 2;
+        for (i = 0; i < len; i++) {
+            p = particles[i];
+            p.update(timeScale);
+            bufferCtx.fillStyle = bufferCtx.strokeStyle = p.color;
+            bufferCtx.beginPath();
+            bufferCtx.moveTo(p.x, p.y);
+            bufferCtx.lineTo(p._latest.x, p._latest.y);
+            bufferCtx.stroke();
+            bufferCtx.beginPath();
+            bufferCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2, false);
+            bufferCtx.fill();
+        }
+        bufferCtx.restore();
+
+        // バッファをキャンバスに描画
+        context.drawImage(bufferCvs, 0, 0);
+
+        if (control.showLabels) {
+            var groups = computeGroups();
+
+            context.save();
+            context.font = '9px Helvetica, sans-serif';
+            context.textAlign = 'center';
+            context.textBaseline = 'bottom';
+            context.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            for (i = 0, len = particles.length; i < len; i++) {
+                p = particles[i];
+                context.fillText(
+                    p.element + (p.charge > 0 ? '+' : (p.charge < 0 ? '-' : '')),
+                    p.x, p.y - 3
+                );
+            }
+
+            context.font = 'bold 11px Helvetica, sans-serif';
+            context.fillStyle = '#fff';
+            for (i = 0; i < groups.length; i++) {
+                if (groups[i].length < 2) continue;
+                var cx = 0, cy = 0;
+                for (j = 0; j < groups[i].length; j++) {
+                    cx += groups[i][j].x;
+                    cy += groups[i][j].y;
+                }
+                cx /= groups[i].length;
+                cy /= groups[i].length;
+                context.fillText(formulaOf(groups[i]), cx, cy - 10);
+            }
+            context.restore();
+        }
+
+        requestAnimationFrame(loop);
+    };
+    loop();
+
+})();
+
+</script>
